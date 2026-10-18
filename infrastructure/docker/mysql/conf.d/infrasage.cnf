@@ -1,0 +1,8 @@
+[mysqld]
+# All application timestamps are UTC.
+default-time-zone = '+00:00'
+character-set-server = utf8mb4
+collation-server = utf8mb4_0900_ai_ci
+# Sized for the 1 GB container limit in docker-compose.yml.
+innodb_buffer_pool_size = 256M
+max_connections = 100

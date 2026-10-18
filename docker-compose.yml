@@ -1,0 +1,75 @@
+# Local infrastructure only (PLAN D2): web, api and mcp-server run on the host via `pnpm dev`.
+# Ports are bound to 127.0.0.1 so the databases are not reachable from the network.
+name: infrasage
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-infrasage}
+      # Consumed by infrastructure/docker/mysql/init/01-users.sh on first start only.
+      MYSQL_APP_USER: ${MYSQL_APP_USER:-infrasage_app}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:?set MYSQL_APP_PASSWORD in .env}
+      MYSQL_RO_USER: ${MYSQL_RO_USER:-infrasage_ro}
+      MYSQL_RO_PASSWORD: ${MYSQL_RO_PASSWORD:?set MYSQL_RO_PASSWORD in .env}
+      MYSQL_MIGRATOR_USER: ${MYSQL_MIGRATOR_USER:-infrasage_migrator}
+      MYSQL_MIGRATOR_PASSWORD: ${MYSQL_MIGRATOR_PASSWORD:?set MYSQL_MIGRATOR_PASSWORD in .env}
+    ports:
+      - '127.0.0.1:${MYSQL_PORT:-3306}:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infrastructure/docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./infrastructure/docker/mysql/conf.d:/etc/mysql/conf.d:ro
+    healthcheck:
+      # TCP (not the socket) so the check only passes once the real server is up after init.
+      test:
+        [
+          'CMD-SHELL',
+          'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # AOF with fsync every second (PLAN §5). noeviction: dedupe keys and locks must never be
+    # silently evicted; writes fail loudly instead if the memory cap is hit.
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 320m
+
+volumes:
+  mysql-data:
+  redis-data:
